@@ -1,2 +1,5 @@
-# discolibdump
-Dumps a user's Discogs library metadata
+# switchboard
+
+Set up:
+	- Put Discogs user token into .user_token
+

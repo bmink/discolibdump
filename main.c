@@ -5,11 +5,15 @@
 #include "bstr.h"
 #include "hiredis_helper.h"
 #include "bcurl.h"
+#include "cJSON.h"
+#include "cJSON_helper.h"
 
 bstr_t	*user_tok;
 
 int load_user_tok(void);
 int dump_albums(void);
+
+#define USER_AGENT	"discolibdump/0.1"
 
 
 int
@@ -18,8 +22,10 @@ main(int argc, char **argv)
 	char		*execn;
 	int		err;
 	int		ret;
+	bstr_t		*useragent;
 
 	err = 0;
+	useragent = NULL;
 
 	execn = basename(argv[0]);
 	if(xstrempty(execn)) {
@@ -43,9 +49,9 @@ main(int argc, char **argv)
 		goto end_label;
 	}
 
-	ret = load_user_tok();
+	ret = bcurl_init();
 	if(ret != 0) {
-		fprintf(stderr, "Couldn't load user token\nn");
+		fprintf(stderr, "Couldn't initialize curl\n");
 		err = -1;
 		goto end_label;
 	}
@@ -53,6 +59,28 @@ main(int argc, char **argv)
 	ret = bcurl_header_add("Accept: application/json");
 	if(ret != 0) {
 		fprintf(stderr, "Couldn't add Accept: header\n");
+		err = -1;
+		goto end_label;
+	}
+
+	useragent = binit();
+	if(useragent == NULL) {
+		fprintf(stderr, "Can't allocate useragent\n");
+		err = -1;
+		goto end_label;
+	}
+	bprintf(useragent, "User-Agent: %s", USER_AGENT);
+
+	ret = bcurl_header_add(bget(useragent));
+	if(ret != 0) {
+		fprintf(stderr, "Couldn't add User-Agent: header\n");
+		err = -1;
+		goto end_label;
+	}
+
+	ret = load_user_tok();
+	if(ret != 0) {
+		fprintf(stderr, "Couldn't load user token\nn");
 		err = -1;
 		goto end_label;
 	}
@@ -67,16 +95,23 @@ main(int argc, char **argv)
 end_label:
 
 	hiredis_uninit();
+	bcurl_uninit();
 
 	blog_uninit();
 
+	buninit(&useragent);
 	buninit(&user_tok);
 	
 	return err;
 }
 
 
-#define FILEN_USER_TOK	".access_token"
+#define FILEN_USER_TOK	".user_token"
+#define RECENT_CNT	20
+
+#define REDIS_KEY_VINYL_ALL	"musiclib:vinyl:all"
+#define REDIS_KEY_VINYL_REC	"musiclib:vinyl:recent"
+#define REDIS_KEY_TMP		"discolibdump.tmp"
 
 int
 load_user_tok(void)
@@ -95,7 +130,7 @@ load_user_tok(void)
 
 	ret = bfromfile(user_tok, FILEN_USER_TOK);
 	if(ret != 0) {
-		fprintf(stderr, "Couldn't load access token: %s\n",
+		fprintf(stderr, "Couldn't load user token: %s\n",
 		    strerror(ret));
 		err = ret;
 		goto end_label;
@@ -120,8 +155,91 @@ end_label:
 }
 
 
+#define URL_ALBUMS_FMT	"https://api.discogs.com/users/bmink/collection/folders/0/releases?sort=added&sort_order=desc&token=%s"
+
+
+
 int
 dump_albums(void)
 {
-	return 0;
+	int	err;
+	bstr_t	*url;
+	bstr_t	*resp;
+	cJSON	*json;
+	cJSON	*pagination;
+	cJSON	*urls;
+	int	ret;
+
+	err = 0;
+	url = NULL;
+	resp = NULL;
+
+
+	url = binit();
+	if(!url) {
+		fprintf(stderr, "Couldn't allocate url\n");
+		err = ENOMEM;
+		goto end_label;
+	}
+
+	bprintf(url, URL_ALBUMS_FMT, bget(user_tok));
+
+#if 0
+	printf("%s\n", bget(url));
+#endif
+
+	while(1) {
+
+		ret = bcurl_get(bget(url), &resp);
+		if(ret != 0) {
+			fprintf(stderr, "Couldn't get albums list\n");
+			err = ret;
+			goto end_label;
+		}
+
+#if 0
+		printf("%s\n", bget(resp));
+#endif
+
+		json = cJSON_Parse(bget(resp));
+		if(json == NULL) {
+			fprintf(stderr, "Couldn't parse JSON\n");
+			err = ENOEXEC;
+			goto end_label;
+		}
+
+		pagination = cJSON_GetObjectItemCaseSensitive(json,
+		    "pagination");
+		if(!pagination) {
+			break;
+		}
+		urls = cJSON_GetObjectItemCaseSensitive(pagination, "urls");
+		if(!urls) {
+			break;
+		}
+
+		bclear(url);
+
+		ret = cjson_get_childstr(urls, "next", url);
+
+		cJSON_Delete(json);
+		json = NULL;
+
+		if(ret != 0)
+			break;
+#if 0
+		printf("next url: %s\n", bget(url));
+#endif
+
+
+	}
+	
+
+
+end_label:
+
+	buninit(&url);
+	buninit(&resp);
+
+	return err;
 }

@@ -1,2 +1,2 @@
-curl "https://api.discogs.com/users/bmink/collection/folders/0/releases?token=WWjauAhnDmVHlymFoDDUCCUTEHHjHXtjcNUDacQn" | jq | less
+curl "https://api.discogs.com/users/bmink/collection/folders/0/releases?sort=added&sort_order=desc&token=WWjauAhnDmVHlymFoDDUCCUTEHHjHXtjcNUDacQn" | jq | less
 

@@ -1,0 +1,2 @@
+curl "https://api.discogs.com/users/bmink/collection/folders/0/releases?token=WWjauAhnDmVHlymFoDDUCCUTEHHjHXtjcNUDacQn" | jq | less
+

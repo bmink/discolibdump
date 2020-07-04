@@ -107,11 +107,6 @@ end_label:
 
 
 #define FILEN_USER_TOK	".user_token"
-#define RECENT_CNT	20
-
-#define REDIS_KEY_VINYL_ALL	"musiclib:vinyl:all"
-#define REDIS_KEY_VINYL_REC	"musiclib:vinyl:recent"
-#define REDIS_KEY_TMP		"discolibdump.tmp"
 
 int
 load_user_tok(void)
@@ -157,6 +152,13 @@ end_label:
 
 #define URL_ALBUMS_FMT	"https://api.discogs.com/users/bmink/collection/folders/0/releases?sort=added&sort_order=desc&token=%s"
 
+#define RECENT_CNT	20
+
+#define REDIS_KEY_TMP		"discolibdump.tmp"
+#define REDIS_KEY_VINYL_ALL	"musiclib:vinyl:all"
+#define REDIS_KEY_VINYL_REC	"musiclib:vinyl:recent"
+
+int process_releases(cJSON *);
 
 
 int
@@ -167,6 +169,7 @@ dump_albums(void)
 	bstr_t	*resp;
 	cJSON	*json;
 	cJSON	*pagination;
+	cJSON	*releases;
 	cJSON	*urls;
 	int	ret;
 
@@ -174,6 +177,7 @@ dump_albums(void)
 	url = NULL;
 	resp = NULL;
 
+	(void) hiredis_del(REDIS_KEY_TMP);
 
 	url = binit();
 	if(!url) {
@@ -205,6 +209,20 @@ dump_albums(void)
 		if(json == NULL) {
 			fprintf(stderr, "Couldn't parse JSON\n");
 			err = ENOEXEC;
+			goto end_label;
+		}
+
+		releases = cJSON_GetObjectItemCaseSensitive(json, "releases");
+		if(!releases) {
+			blogf("Response didn't contain releases");
+			err = ENOENT;
+			goto end_label;
+		}
+
+		ret = process_releases(releases);
+		if(ret != 0) {
+			blogf("Couldn't process releases");
+			err = ret;
 			goto end_label;
 		}
 
@@ -240,6 +258,69 @@ end_label:
 
 	buninit(&url);
 	buninit(&resp);
+
+	(void) hiredis_del(REDIS_KEY_TMP);
+
+	return err;
+}
+
+
+int
+process_releases(cJSON *releases)
+{
+	int	err;
+	cJSON	*release;
+	cJSON	*basic_information;
+	bstr_t	*albnam;
+	int	ret;
+
+	if(releases == NULL)
+		return EINVAL;
+
+	err = 0;
+	albnam = NULL;
+
+	albnam = binit();
+	if(!albnam) {
+		blogf("Couldn't allocate albnam");
+		err = ENOMEM;
+		goto end_label;
+	}
+
+	for(release = releases->child; release; release = release->next) {
+
+		basic_information = cJSON_GetObjectItemCaseSensitive(release,
+		    "basic_information");
+		if(!basic_information) {
+			fprintf(stderr, "Release didn't contain"
+			    " basic_information\n");
+			err = ENOENT;
+			goto end_label;
+		}
+
+		ret = cjson_get_childstr(basic_information, "title", albnam);
+		if(ret != 0) {
+			fprintf(stderr, "Item didn't contain title\n");
+			err = ENOENT;
+			goto end_label;
+		}
+
+		printf("%s\n", bget(albnam));
+
+		bclear(albnam);
+
+	}
+
+
+	
+
+	
+
+
+
+end_label:
+
+	buninit(&albnam);
 
 	return err;
 }

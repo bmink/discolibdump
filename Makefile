@@ -1,5 +1,5 @@
 P = discolibdump
-OBJS = main.o hiredis_helper.o cJSON.o cJSON_helper.o
+OBJS = main.o hiredis_helper.o cJSON.o cJSON_helper.o slsitem.o
 CFLAGS = -g -Wall -Wstrict-prototypes -Werror
 LDLIBS = -lb -lhiredis -lcurl
 

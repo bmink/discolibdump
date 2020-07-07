@@ -271,14 +271,20 @@ process_releases(cJSON *releases)
 	int	err;
 	cJSON	*release;
 	cJSON	*basic_information;
-	bstr_t	*albnam;
+	cJSON	*artists;
+	cJSON	*artist;
 	int	ret;
+	bstr_t	*albnam;
+	bstr_t	*artistnam;
+	bstr_t	*name;
 
 	if(releases == NULL)
 		return EINVAL;
 
 	err = 0;
 	albnam = NULL;
+	artistnam = NULL;
+	name = NULL;
 
 	albnam = binit();
 	if(!albnam) {
@@ -287,27 +293,70 @@ process_releases(cJSON *releases)
 		goto end_label;
 	}
 
+	artistnam = binit();
+	if(!artistnam) {
+		blogf("Couldn't allocate artistnam");
+		err = ENOMEM;
+		goto end_label;
+	}
+
+	name = binit();
+	if(!name) {
+		blogf("Couldn't allocate name");
+		err = ENOMEM;
+		goto end_label;
+	}
+
+
 	for(release = releases->child; release; release = release->next) {
 
 		basic_information = cJSON_GetObjectItemCaseSensitive(release,
 		    "basic_information");
 		if(!basic_information) {
-			fprintf(stderr, "Release didn't contain"
-			    " basic_information\n");
+			blogf("Release didn't contain basic_information\n");
 			err = ENOENT;
 			goto end_label;
 		}
+
+		artists = cJSON_GetObjectItemCaseSensitive(basic_information,
+		    "artists");
+		if(!artists) {
+			blogf("Release didn't contain artists\n");
+			err = ENOENT;
+			goto end_label;
+		}
+
+		for(artist = artists->child; artist; artist = artist->next) {
+			ret = cjson_get_childstr(artist, "name", artistnam);
+			if(ret != 0) {
+				blogf("Artist didn't contain name\n");
+				err = ENOENT;
+				goto end_label;
+			}
+
+			if(!bstrempty(name))
+				bstrcat(name, ", ");
+
+			bstrcat(name, bget(artistnam));
+
+			bclear(artistnam);
+		}
+
+		bstrcat(name, " - ");
 
 		ret = cjson_get_childstr(basic_information, "title", albnam);
 		if(ret != 0) {
-			fprintf(stderr, "Item didn't contain title\n");
+			blogf("Release didn't contain title\n");
 			err = ENOENT;
 			goto end_label;
 		}
 
-		printf("%s\n", bget(albnam));
+		bstrcat(name, bget(albnam));
+
+		printf("%s\n", bget(name));
 
 		bclear(albnam);
+		bclear(name);
 
 	}
 
@@ -321,6 +370,8 @@ process_releases(cJSON *releases)
 end_label:
 
 	buninit(&albnam);
+	buninit(&artistnam);
+	buninit(&name);
 
 	return err;
 }

@@ -7,13 +7,17 @@
 #include "bcurl.h"
 #include "cJSON.h"
 #include "cJSON_helper.h"
+#include "slsitem.h"
 
 bstr_t	*user_tok;
 
 int load_user_tok(void);
 int dump_albums(void);
+int save_album(const char *, int);
 
 #define USER_AGENT	"discolibdump/0.1"
+
+#define FORMAT		"vinyl"
 
 
 int
@@ -154,30 +158,34 @@ end_label:
 
 #define RECENT_CNT	20
 
-#define REDIS_KEY_TMP		"discolibdump.tmp"
-#define REDIS_KEY_VINYL_ALL	"musiclib:vinyl:all"
-#define REDIS_KEY_VINYL_REC	"musiclib:vinyl:recent"
+#define REDIS_KEY_VINYL_ALL	"sls:vinyl:all"
+#define REDIS_KEY_VINYL_ALL_TMP	"sls:vinyl:all.tmp"
+#define REDIS_KEY_VINYL_REC	"sls:vinyl:recent"
+#define REDIS_KEY_VINYL_REC_TMP	"sls:vinyl:recent.tmp"
 
-int process_releases(cJSON *);
+
+int process_releases(cJSON *, int *);
 
 
 int
 dump_albums(void)
 {
-	int	err;
-	bstr_t	*url;
-	bstr_t	*resp;
-	cJSON	*json;
-	cJSON	*pagination;
-	cJSON	*releases;
-	cJSON	*urls;
-	int	ret;
+	int		err;
+	bstr_t		*url;
+	bstr_t		*resp;
+	cJSON		*json;
+	cJSON		*pagination;
+	cJSON		*releases;
+	cJSON		*urls;
+	int		ret;
+	int		idx;
 
 	err = 0;
 	url = NULL;
 	resp = NULL;
 
-	(void) hiredis_del(REDIS_KEY_TMP);
+	(void) hiredis_del(REDIS_KEY_VINYL_ALL_TMP);
+	(void) hiredis_del(REDIS_KEY_VINYL_REC_TMP);
 
 	url = binit();
 	if(!url) {
@@ -192,6 +200,7 @@ dump_albums(void)
 	printf("%s\n", bget(url));
 #endif
 
+	idx = 0;
 	while(1) {
 
 		ret = bcurl_get(bget(url), &resp);
@@ -219,7 +228,7 @@ dump_albums(void)
 			goto end_label;
 		}
 
-		ret = process_releases(releases);
+		ret = process_releases(releases, &idx);
 		if(ret != 0) {
 			blogf("Couldn't process releases");
 			err = ret;
@@ -259,14 +268,15 @@ end_label:
 	buninit(&url);
 	buninit(&resp);
 
-	(void) hiredis_del(REDIS_KEY_TMP);
+	(void) hiredis_del(REDIS_KEY_VINYL_ALL_TMP);
+	(void) hiredis_del(REDIS_KEY_VINYL_REC_TMP);
 
 	return err;
 }
 
 
 int
-process_releases(cJSON *releases)
+process_releases(cJSON *releases, int *idx)
 {
 	int	err;
 	cJSON	*release;
@@ -313,7 +323,7 @@ process_releases(cJSON *releases)
 		basic_information = cJSON_GetObjectItemCaseSensitive(release,
 		    "basic_information");
 		if(!basic_information) {
-			blogf("Release didn't contain basic_information\n");
+			blogf("Release didn't contain basic_information");
 			err = ENOENT;
 			goto end_label;
 		}
@@ -321,7 +331,7 @@ process_releases(cJSON *releases)
 		artists = cJSON_GetObjectItemCaseSensitive(basic_information,
 		    "artists");
 		if(!artists) {
-			blogf("Release didn't contain artists\n");
+			blogf("Release didn't contain artists");
 			err = ENOENT;
 			goto end_label;
 		}
@@ -329,7 +339,7 @@ process_releases(cJSON *releases)
 		for(artist = artists->child; artist; artist = artist->next) {
 			ret = cjson_get_childstr(artist, "name", artistnam);
 			if(ret != 0) {
-				blogf("Artist didn't contain name\n");
+				blogf("Artist didn't contain name");
 				err = ENOENT;
 				goto end_label;
 			}
@@ -346,25 +356,29 @@ process_releases(cJSON *releases)
 
 		ret = cjson_get_childstr(basic_information, "title", albnam);
 		if(ret != 0) {
-			blogf("Release didn't contain title\n");
+			blogf("Release didn't contain title");
 			err = ENOENT;
 			goto end_label;
 		}
 
 		bstrcat(name, bget(albnam));
 
+#if 1
 		printf("%s\n", bget(name));
+#endif
+
+		ret = save_album(bget(name), *idx < RECENT_CNT?1:0);
+		if(ret != 0) {
+			blogf("Couldn't save album");
+			err = ret;
+			goto end_label;
+		}
 
 		bclear(albnam);
 		bclear(name);
 
+		++*idx;
 	}
-
-
-	
-
-	
-
 
 
 end_label:
@@ -374,4 +388,14 @@ end_label:
 	buninit(&name);
 
 	return err;
+}
+
+
+int
+save_album(const char *name, int isrecent)
+{
+	if(xstrempty(name))
+		return EINVAL;
+
+	return 0;
 }

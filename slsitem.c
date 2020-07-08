@@ -3,12 +3,12 @@
 #include "blog.h"
 
 slsitem_t *
-slsitem_init(const char *name, const char *url)
+slsitem_init(const char *format, const char *name, const char *url)
 {
 	slsitem_t	*slsi;
 	int		err;
 
-	if(xstrempty(name))
+	if(xstrempty(format) || xstrempty(name))
 		return NULL;
 
 	err = 0;
@@ -20,6 +20,15 @@ slsitem_init(const char *name, const char *url)
 		err = ENOMEM;
 		goto end_label;
 	}
+
+	slsi->si_format = binit();
+	if(slsi->si_format == NULL) {
+		blogf("Couldn't allocate si_format");
+		err = ENOMEM;
+		goto end_label;
+	}
+
+	bstrcat(slsi->si_format, format);
 
 	slsi->si_name = binit();
 	if(slsi->si_name == NULL) {
@@ -43,6 +52,7 @@ slsitem_init(const char *name, const char *url)
 end_label:
 
 	if(err != 0 && slsi) {
+		buninit(&slsi->si_format);
 		buninit(&slsi->si_name);
 		buninit(&slsi->si_url);
 		free(slsi);
@@ -50,5 +60,19 @@ end_label:
 	}
 
 	return slsi;
+}
+
+
+void
+slsitem_uinit(slsitem_t **slsip)
+{
+	if(slsip == NULL|| *slsip == NULL)
+		return;
+
+	buninit(&((*slsip)->si_format));
+	buninit(&((*slsip)->si_name));
+	buninit(&((*slsip)->si_url));
+	free(*slsip);
+	*slsip = NULL;
 }
 
